@@ -42,7 +42,7 @@ class PositionalEncoding(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.seq_len = seq_len
-        # dropout prevents overfitting of the model
+        # dropout prevents overfitting of the model, randomly zeroes some values
         self.dropout = nn.Dropout(dropout)
 
         positional_encoding = torch.zeros(seq_len, d_model)  # (seq_len, d_model)
@@ -56,6 +56,7 @@ class PositionalEncoding(nn.Module):
         positional_encoding[:, 0::2] = torch.sin(position_vector * denominator)
         positional_encoding[:, 1::2] = torch.cos(position_vector * denominator)
 
+        # we unsqueeze to make it broadcastable over batch dimension (batch_size, seq_len, d_model) + (1, seq_len, d_model)
         positional_encoding.unsqueeze(0)  # (1, seq_len, d_model)
         self.register_buffer("positional_encoding", positional_encoding)
 
@@ -93,5 +94,43 @@ class LayerNormalization(nn.Module):
 
 
 class FeedForwardBlock(nn.Module):
-    def __init__(self):
+    def __init__(self, d_model: int, d_ff: int, dropout: float) -> None:
+        """
+        d_model: dimension of the model. It would be the input dimension of the input layer of our feed forward network.
+        d_ff: dimensions of the hidden layer. It is usually larger than the input dimensions i.e. d_model
+
+        Architecture:
+            Input (batch_size, seq_len, d_model)
+                -> Linear(d_model → d_ff)
+                -> ReLU (non-linearity)
+                -> Dropout
+                -> Linear(d_ff → d_model)
+            Output (batch_size, seq_len, d_model)
+        """
         super().__init__()
+        self.layer_1 = nn.Linear(d_model, d_ff)
+        self.dropout = nn.Dropout(dropout)
+        self.layer_2 = nn.Linear(d_ff, d_model)
+
+    def forward(self, x):
+        return self.layer_2(self.dropout(torch.relu(self.layer_1(x))))
+
+
+class MultiHeadAttentionBlock(nn.Module):
+    def __init__(self, d_model: int, head: int, dropout: float):
+        """
+        d_model: dimension of the model.
+        head: number of parts we have to break the multihead attention block into
+        """
+        super().__init__()
+        self.d_model = d_model
+        self.heads = head
+        assert d_model % head == 0, "Head should completely divide the model dimensions"
+
+        self.d_k = d_model // head
+        self.w_q = nn.Linear(d_model, d_model)
+        self.w_k = nn.Linear(d_model, d_model)
+        self.w_v = nn.Linear(d_model, d_model)
+
+        self.w_o = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
