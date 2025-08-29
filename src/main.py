@@ -1,3 +1,5 @@
+# In pytorch, forward function of each class is called automatically, so we do not need to call it each time we call that class.
+
 import torch
 import torch.nn as nn
 import math
@@ -57,7 +59,7 @@ class PositionalEncoding(nn.Module):
         positional_encoding[:, 1::2] = torch.cos(position_vector * denominator)
 
         # we unsqueeze to make it broadcastable over batch dimension (batch_size, seq_len, d_model) + (1, seq_len, d_model)
-        positional_encoding.unsqueeze(0)  # (1, seq_len, d_model)
+        positional_encoding = positional_encoding.unsqueeze(0)  # (1, seq_len, d_model)
         self.register_buffer("positional_encoding", positional_encoding)
 
     def forward(self, x):
@@ -104,7 +106,7 @@ class FeedForwardBlock(nn.Module):
                 -> Linear(d_model → d_ff)
                 -> ReLU (non-linearity)
                 -> Dropout
-                -> Linear(d_ff → d_model)
+                -> Linear(d_ff → d_mudrodip?tab=overview&from=2025-08-01&to=2025-08-29odel)
             Output (batch_size, seq_len, d_model)
         """
         super().__init__()
@@ -117,10 +119,11 @@ class FeedForwardBlock(nn.Module):
 
 
 class MultiHeadAttentionBlock(nn.Module):
-    def __init__(self, d_model: int, head: int, dropout: float):
+    def __init__(self, d_model: int, head: int, dropout: float) -> None:
         """
         d_model: dimension of the model.
         head: number of parts we have to break the multihead attention block into
+        Initialize four linear layers of size d_model by d_model which we will use later
         """
         super().__init__()
         self.d_model = d_model
@@ -134,3 +137,159 @@ class MultiHeadAttentionBlock(nn.Module):
 
         self.w_o = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
+
+    @staticmethod
+    def attention(query, key, value, mask, dropout: nn.Dropout):
+        """
+        query, key and value are the input matrices to calculate the attention
+        mask is used in a case where we need to ignore the interactions between certain values.
+        For eg. While using this in a decoder, we would mask all the keys ahead of the word.
+        Similarly, we will ignore all the padded elements in a sentence.
+
+        This function implements the the attention calculation logic.
+        """
+        d_k = query.shape[-1]
+        attention_scores = (query @ key.transpose(-2, -1)) / math.sqrt(
+            d_k
+        )  # "@" represents matrix multiplication in pytorch
+
+        if mask is not None:
+            attention_scores.masked_fill_(mask == 0, float("-inf"))
+        attention_scores = attention_scores.softmax(dim=-1)
+
+        if dropout is not None:
+            attention_scores = dropout(attention_scores)
+
+        return (attention_scores @ value), attention_scores
+
+    def forward(self, query, key, value, mask):
+        query = self.w_q(query)
+        key = self.w_k(key)
+        value = self.w_v(value)
+
+        # We now divide the matrices in `heads` part.
+        # (batch_size, seq_len, d_model) --> (batch_size, seq_len, head, (d_model // head)) --> (batch_size, head, seq_len, (d_model // head))
+        query = query.view(
+            query.shape[0], query.shape[1], self.heads, self.d_k
+        ).transpose(1, 2)
+        key = key.view(key.shape[0], key.shape[1], self.heads, self.d_k).transpose(1, 2)
+        value = value.view(
+            value.shape[0], value.shape[1], self.heads, self.d_k
+        ).transpose(1, 2)
+
+        # Calculate the attention values and the final output after multiplying it with `value`
+        x, self.attention_scores = MultiHeadAttentionBlock.attention(
+            query, key, value, mask, self.dropout
+        )
+        # (batch_size, head, seq_len, (d_model // head)) --> (batch_size, seq_len, head, (d_model // head)) --> (batch_size, seq_len, d_model)
+        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.h * self.d_k)
+
+        return self.w_o(x)
+
+
+class ResidualConnection(nn.Module):
+    def __init__(self, features: int, dropout: float) -> None:
+        """
+        This class is basically a wrapper around all the blocks that we'll use in the transformer.
+        It will pass through that layer and automatically apply dropout and layer normalization to prevent values to go out of bound.
+
+
+        [LayerNorm -> Sublayer -> Dropout] + Input
+        """
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.norm = LayerNormalization(features=features)
+
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
+
+
+class EncoderBlock(nn.Module):
+    def __init__(
+        self,
+        features: int,
+        self_attention_block: MultiHeadAttentionBlock,
+        feed_forward_block: FeedForwardBlock,
+        dropout: float,
+    ) -> None:
+        """
+        This defines the structure of the encoder block.
+        First is the multihead self attention block and the second is the feed forward block
+        """
+        super().__init__()
+        self.self_attention_block = self_attention_block
+        self.feed_forward_block = feed_forward_block
+        self.dropout = dropout
+        self.residual_connections = nn.ModuleList(
+            [ResidualConnection(features, dropout) for _ in range(2)]
+        )
+
+    def forward(self, x, src_mask):
+        x = self.residual_connections[0](
+            x, lambda x: self.self_attention_block(x, x, x, src_mask)
+        )
+        x = self.residual_connections[1](x, self.feed_forward_block)
+        return x
+
+
+class Encoder(nn.Module):
+    def __init__(self, features: int, layers: nn.ModuleList) -> None:
+        """
+        This is the main Encoder class built up of multiple "EncoderBlock" classes
+        """
+        super().__init__()
+        self.layers = layers
+        self.norm = LayerNormalization(features=features)
+
+    def forward(self, x, mask):
+        for layer in self.layers:
+            x = layer(x, mask)
+        return self.norm(x)
+
+
+class DecoderBlock(nn.Module):
+    def __init__(
+        self,
+        self_attention_block: MultiHeadAttentionBlock,
+        cross_attention_block: MultiHeadAttentionBlock,
+        feed_forward_layer: FeedForwardBlock,
+        features: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        self.self_attention_block = self_attention_block
+        self.cross_attention_block = cross_attention_block
+        self.feed_forward_layer = feed_forward_layer
+        self.residual_connections = nn.ModuleList(
+            [ResidualConnection(features, dropout) for _ in range(3)]
+        )
+
+    def forward(self, x, encoder_output, target_mask, src_mask):
+        x = self.residual_connections[0](
+            x, lambda x: self.self_attention_block(x, x, x, target_mask)
+        )
+        x = self.residual_connections[1](
+            x,
+            lambda x: self.cross_attention_block(
+                x, encoder_output, encoder_output, src_mask
+            ),
+        )
+        x = self.residual_connections[2](x, self.feed_forward_layer)
+        return x
+
+
+class Decoder(nn.Module):
+    def __init__(self, layers: nn.ModuleList, features: int) -> None:
+        super().__init__()
+        self.layers = layers
+        self.norm = LayerNormalization(features=features)
+
+    def forward(self, x, encoder_output, target_mask, src_mask):
+        for layer in self.layers:
+            x = layer(x, encoder_output, target_mask, src_mask)
+        self.norm(x)
+
+
+class Transformer(nn.Module):
+    def __init__(self):
+        super().__init__()
