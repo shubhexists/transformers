@@ -256,6 +256,12 @@ class DecoderBlock(nn.Module):
         features: int,
         dropout: float,
     ) -> None:
+        """
+        This class defines the structure of the decoder block.
+        First is the masked multihead self attention layer which takes in the target embeddings,
+        Second is the cross multihead attention layer which takes query from the decoder but key and value from the encoder
+        Thirdly the feed forward layer that takes the output of the cross multi head attention
+        """
         super().__init__()
         self.self_attention_block = self_attention_block
         self.cross_attention_block = cross_attention_block
@@ -280,6 +286,7 @@ class DecoderBlock(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, layers: nn.ModuleList, features: int) -> None:
+        """ """
         super().__init__()
         self.layers = layers
         self.norm = LayerNormalization(features=features)
@@ -290,6 +297,119 @@ class Decoder(nn.Module):
         self.norm(x)
 
 
-class Transformer(nn.Module):
-    def __init__(self):
+class ProjectionLayer(nn.Module):
+    def __init__(self, d_model: int, vocab_size: int):
         super().__init__()
+        self.proj = nn.Linear(d_model, vocab_size)
+
+    def forward(self, x):
+        return torch.log_softmax(self.proj(x), dim=-1)
+
+
+class Transformer(nn.Module):
+    def __init__(
+        self,
+        encoder: Encoder,
+        decoder: Decoder,
+        src_embedding: InputEmbeddings,
+        target_embedding: InputEmbeddings,
+        src_position: PositionalEncoding,
+        target_position: PositionalEncoding,
+        projection_layer: ProjectionLayer,
+    ) -> None:
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.src_embedding = src_embedding
+        self.target_embedding = target_embedding
+        self.src_position = src_position
+        self.target_position = target_position
+        self.projection_layer = projection_layer
+
+    def encode(self, src, src_mask):
+        src = self.src_embedding(src)
+        src = self.src_position(src)
+        return self.encoder(src, src_mask)
+
+    def decode(self, encoder_output, src_mask, target, target_mask):
+        target = self.target_embedding(target)
+        target = self.target_position(target)
+        return self.decoder(target, encoder_output, target_mask, src_mask)
+
+    def projection_layer(self, x):
+        return self.projection_layer(x)
+
+
+def build_transformer(
+    src_vocab_size: int,
+    target_vocab_size: int,
+    src_seq_len: int,
+    target_seq_len: int,
+    d_model: int = 512,
+    N: int = 6,
+    head: int = 8,
+    dropout: float = 0.1,
+    d_ff: int = 2048,
+) -> Transformer:
+    """
+    src_vocab_size: number of words in the vocab
+    target_vocab_size: its the output of the target vocab
+    src_seq_len: it represent the maxium number of words in a sentence
+    """
+    src_embeddings = InputEmbeddings(d_model, src_vocab_size)
+    target_embeddings = InputEmbeddings(d_model, target_vocab_size)
+
+    src_positional_embeddings = PositionalEncoding(d_model, src_seq_len, dropout)
+    target_postional_embeddings = PositionalEncoding(d_model, target_seq_len, dropout)
+
+    encoder_blocks = []
+    for i in range(N):
+        encoder_self_multi_head_attention_block = MultiHeadAttentionBlock(
+            d_model, head, dropout
+        )
+        feed_forward_layer = MultiHeadAttentionBlock(d_model, head, dropout)
+        encoder_blocks.append(
+            EncoderBlock(
+                d_model, encoder_self_multi_head_attention_block, feed_forward_layer
+            )
+        )
+
+    decoder_blocks = []
+    for i in range(N):
+        decoder_masked_multi_head_attention_block = MultiHeadAttentionBlock(
+            d_model, head, dropout
+        )
+        cross_multihead_attention_block = MultiHeadAttentionBlock(
+            d_model, head, dropout
+        )
+        feed_forward_layer = FeedForwardBlock(d_model, d_ff, dropout)
+        decoder_blocks.append(
+            DecoderBlock(
+                decoder_masked_multi_head_attention_block,
+                cross_multihead_attention_block,
+                feed_forward_layer,
+                d_model,
+                dropout,
+            )
+        )
+
+    encoder = Encoder(d_model, nn.ModuleList(encoder_blocks))
+    decoder = Decoder(d_model, nn.ModuleList(decoder_blocks))
+
+    projection_layer = ProjectionLayer(d_model, target_vocab_size)
+
+    transformer = Transformer(
+        encoder,
+        decoder,
+        src_embeddings,
+        target_embeddings,
+        src_positional_embeddings,
+        target_postional_embeddings,
+        projection_layer,
+    )
+
+    for p in transformer.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform_(p)
+
+    return transformer
