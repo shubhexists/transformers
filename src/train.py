@@ -165,9 +165,7 @@ def get_dataset(config):
     train_dataloader = DataLoader(
         train_dataset, batch_size=config["batch_size"], shuffle=True
     )
-    validation_dataloader = DataLoader(
-        validation_dataset, batch_size=config["batch_size"], shuffle=True
-    )
+    validation_dataloader = DataLoader(validation_dataset, batch_size=1, shuffle=True)
 
     return train_dataloader, validation_dataloader, tokenizer_src, tokenizer_target
 
