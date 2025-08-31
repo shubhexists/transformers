@@ -1,11 +1,10 @@
 import torch
-import torch.nn as nn
 from torch.utils.data import Dataset
 
 
 class BilingualDataset(Dataset):
     def __init__(
-        self, ds, tokenizer_src, tokenizer_target, src_lang, target_lang, seq_len
+        self, dataset, tokenizer_src, tokenizer_target, src_lang, target_lang, seq_len
     ):
         super().__init__()
         self.seq_len = seq_len
@@ -13,7 +12,7 @@ class BilingualDataset(Dataset):
         self.tokenizer_target = tokenizer_target
         self.tokenizer_src = tokenizer_src
         self.target_lang = target_lang
-        self.ds = ds
+        self.dataset = dataset
 
         self.start_of_sentence_token = torch.tensor(
             [tokenizer_target.token_to_id("[SOS]")], dtype=torch.int64
@@ -26,10 +25,10 @@ class BilingualDataset(Dataset):
         )
 
     def __len__(self):
-        self.ds
+        return len(self.dataset)
 
     def __getitem__(self, index):
-        src_target_pair = self.ds[index]
+        src_target_pair = self.dataset[index]
         src_text = src_target_pair["translation"][self.src_lang]
         target_text = src_target_pair["translation"][self.target_lang]
 
@@ -39,9 +38,8 @@ class BilingualDataset(Dataset):
         enc_num_padding_tokens = self.seq_len - len(encoder_input_tokens) - 2
         dec_num_padding_tokens = self.seq_len - len(decoder_input_tokens) - 1
 
-        assert enc_num_padding_tokens < 0 & dec_num_padding_tokens < 0, (
-            "Sentence is too long"
-        )
+        if enc_num_padding_tokens < 0 or dec_num_padding_tokens < 0:
+            raise ValueError("Sentence is too long")
 
         encoder_input = torch.cat(
             [
@@ -57,7 +55,7 @@ class BilingualDataset(Dataset):
 
         decoder_input = torch.cat(
             [
-                self.sos_token,
+                self.start_of_sentence_token,
                 torch.tensor(decoder_input_tokens, dtype=torch.int64),
                 torch.tensor(
                     [self.padding_token] * dec_num_padding_tokens, dtype=torch.int64
@@ -69,7 +67,7 @@ class BilingualDataset(Dataset):
         label = torch.cat(
             [
                 torch.tensor(decoder_input_tokens, dtype=torch.int64),
-                self.eos_token,
+                self.end_of_sentence_token,
                 torch.tensor(
                     [self.padding_token] * dec_num_padding_tokens, dtype=torch.int64
                 ),
@@ -84,11 +82,11 @@ class BilingualDataset(Dataset):
         return {
             "encoder_input": encoder_input,  # (seq_len)
             "decoder_input": decoder_input,  # (seq_len)
-            "encoder_mask": (encoder_input != self.pad_token)
+            "encoder_mask": (encoder_input != self.padding_token)
             .unsqueeze(0)
             .unsqueeze(0)
-            .int(),  # (1, 1, seq_len)
-            "decoder_mask": (decoder_input != self.pad_token).unsqueeze(0).int()
+            .int(),  # (1, 1, seq_len) adding the sequence dimension and batch dimension
+            "decoder_mask": (decoder_input != self.padding_token).unsqueeze(0).int()
             & causal_mask(
                 decoder_input.size(0)
             ),  # (1, seq_len) & (1, seq_len, seq_len),
@@ -99,5 +97,7 @@ class BilingualDataset(Dataset):
 
 
 def causal_mask(size):
+    # This returns everything above the diagonal. Hence we reverse it by mask == 0 in return as we need
+    # stuff below the diagonal
     mask = torch.triu(torch.ones((1, size, size)), diagonal=1).type(torch.int)
     return mask == 0

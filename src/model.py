@@ -182,7 +182,7 @@ class MultiHeadAttentionBlock(nn.Module):
             query, key, value, mask, self.dropout
         )
         # (batch_size, head, seq_len, (d_model // head)) --> (batch_size, seq_len, head, (d_model // head)) --> (batch_size, seq_len, d_model)
-        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.h * self.d_k)
+        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.heads * self.d_k)
 
         return self.w_o(x)
 
@@ -294,7 +294,7 @@ class Decoder(nn.Module):
     def forward(self, x, encoder_output, target_mask, src_mask):
         for layer in self.layers:
             x = layer(x, encoder_output, target_mask, src_mask)
-        self.norm(x)
+        return self.norm(x)
 
 
 class ProjectionLayer(nn.Module):
@@ -336,7 +336,7 @@ class Transformer(nn.Module):
         target = self.target_position(target)
         return self.decoder(target, encoder_output, target_mask, src_mask)
 
-    def projection_layer(self, x):
+    def projection(self, x):
         return self.projection_layer(x)
 
 
@@ -367,10 +367,13 @@ def build_transformer(
         encoder_self_multi_head_attention_block = MultiHeadAttentionBlock(
             d_model, head, dropout
         )
-        feed_forward_layer = MultiHeadAttentionBlock(d_model, head, dropout)
+        feed_forward_layer = FeedForwardBlock(d_model, d_ff, dropout)
         encoder_blocks.append(
             EncoderBlock(
-                d_model, encoder_self_multi_head_attention_block, feed_forward_layer
+                d_model,
+                encoder_self_multi_head_attention_block,
+                feed_forward_layer,
+                dropout,
             )
         )
 
@@ -394,7 +397,7 @@ def build_transformer(
         )
 
     encoder = Encoder(d_model, nn.ModuleList(encoder_blocks))
-    decoder = Decoder(d_model, nn.ModuleList(decoder_blocks))
+    decoder = Decoder(nn.ModuleList(decoder_blocks), d_model)
 
     projection_layer = ProjectionLayer(d_model, target_vocab_size)
 
