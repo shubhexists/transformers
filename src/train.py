@@ -17,16 +17,23 @@ import warnings
 def greedy_decode(
     model, source, source_mask, tokenizer_src, tokenizer_tgt, max_len, device
 ):
-    """ """
+    """
+    Inference -
+    Start with just SOS token in target
+    Every iteration gives us a new next word which we concatenate into the decoder input and rerun the cycle
+    Loop till we get EOS
+    """
     sos_idx = tokenizer_tgt.token_to_id("[SOS]")
     eos_idx = tokenizer_tgt.token_to_id("[EOS]")
 
+    # Just calculate the encoder input once
     encoder_output = model.encode(source, source_mask)
     decoder_input = torch.empty(1, 1).fill_(sos_idx).type_as(source).to(device)
     while True:
         if decoder_input.size(1) == max_len:
             break
 
+        # run causal_mask
         decoder_mask = (
             causal_mask(decoder_input.size(1)).type_as(source_mask).to(device)
         )

@@ -1,3 +1,1 @@
-> This is me trying to implement transformers from scratch. Public to be more accountable to finish this : )
-
-> PS: doing it for the first time so a lot of notes alongside
+Implementation of transformer architecture based on [Attenton is All You Need](https://arxiv.org/abs/1706.03762)
