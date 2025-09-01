@@ -17,6 +17,7 @@ import warnings
 def greedy_decode(
     model, source, source_mask, tokenizer_src, tokenizer_tgt, max_len, device
 ):
+    """ """
     sos_idx = tokenizer_tgt.token_to_id("[SOS]")
     eos_idx = tokenizer_tgt.token_to_id("[EOS]")
 
@@ -101,6 +102,12 @@ def get_all_sentences(dataset, lang):
 
 
 def get_or_build_tokenizer(config, dataset, lang):
+    """
+    This takes in the dataset and splits all the sentences into tokens
+    Adds four extra tokens to the token list -> "[UNK]", "[SOS]", "[EOS]" and "[PAD]"
+    min frequency for each word to be in our tokenizer is 2 i.e. each word should appear alteast 2 times
+    to be included
+    """
     tokenizer_path = Path(config["tokenizer_file"].format(lang))
     if not Path.exists(tokenizer_path):
         tokenizer = Tokenizer(WordLevel(unk_token="[UNK]"))
@@ -125,6 +132,7 @@ def get_dataset(config):
         config, dataset_raw, config["lang_target"]
     )
 
+    # Split the dataset into training and validation
     train_dataset_size = int(0.9 * len(dataset_raw))
     validation_dataset_size = len(dataset_raw) - train_dataset_size
 
@@ -132,6 +140,7 @@ def get_dataset(config):
         dataset_raw, [train_dataset_size, validation_dataset_size]
     )
 
+    # Initialize the classes
     train_dataset = BilingualDataset(
         train_dataset_raw,
         tokenizer_src,
@@ -150,6 +159,7 @@ def get_dataset(config):
         config["seq_len"],
     )
 
+    # Calculate the max_len
     max_len_src = 0
     max_len_target = 0
 
@@ -199,6 +209,7 @@ def train_model(config) -> None:
         config, tokenizer_src.get_vocab_size(), tokenizer_target.get_vocab_size()
     ).to(device)
 
+    # Adam's optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"], eps=1e-9)
     initial_epoch = 0
     global_step = 0
@@ -210,6 +221,7 @@ def train_model(config) -> None:
         optimizer.load_state_dict(state["optimizer_state_dict"])
         global_step = state["global_step"]
 
+    # Loss functions
     loss_fn = nn.CrossEntropyLoss(
         ignore_index=tokenizer_src.token_to_id("[PAD]"), label_smoothing=0.1
     ).to(device)
@@ -233,17 +245,20 @@ def train_model(config) -> None:
 
             label = batch["label"].to(device)  # (B, seq_len)
 
+            # Compare the expected output with the label
             loss = loss_fn(
                 proj_output.view(-1, tokenizer_target.get_vocab_size()), label.view(-1)
             )
             batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
 
+            # Back Propogation
             loss.backward()
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
             global_step += 1
 
+        # Inference after each epoch to see the results
         run_validation(
             model,
             validation_dataloader,

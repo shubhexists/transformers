@@ -6,6 +6,10 @@ class BilingualDataset(Dataset):
     def __init__(
         self, dataset, tokenizer_src, tokenizer_target, src_lang, target_lang, seq_len
     ):
+        """
+        Initializes a new instance of this Dataset. One language pair of the dataset
+        https://huggingface.co/datasets/Helsinki-NLP/opus_books
+        """
         super().__init__()
         self.seq_len = seq_len
         self.src_lang = src_lang
@@ -28,6 +32,10 @@ class BilingualDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index):
+        """
+        This function takes the text of the sentence from the dataset, tokenizes it using the
+        tokenizer_src and the tokenizer_target respectively and constructs the tensors used to pass to the transformer
+        """
         src_target_pair = self.dataset[index]
         src_text = src_target_pair["translation"][self.src_lang]
         target_text = src_target_pair["translation"][self.target_lang]

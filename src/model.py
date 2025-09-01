@@ -286,7 +286,9 @@ class DecoderBlock(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, layers: nn.ModuleList, features: int) -> None:
-        """ """
+        """
+        This is the main "Decoder" class built up of multiple "DecoderBlock" classes
+        """
         super().__init__()
         self.layers = layers
         self.norm = LayerNormalization(features=features)
@@ -299,6 +301,9 @@ class Decoder(nn.Module):
 
 class ProjectionLayer(nn.Module):
     def __init__(self, d_model: int, vocab_size: int):
+        """
+        The output of the decoder block is passed through a linear layer and then a softmax to convert the vector embedding back to vocabulary
+        """
         super().__init__()
         self.proj = nn.Linear(d_model, vocab_size)
 
@@ -317,6 +322,9 @@ class Transformer(nn.Module):
         target_position: PositionalEncoding,
         projection_layer: ProjectionLayer,
     ) -> None:
+        """
+        This is the main transformer class that encompasses the encoder, decoder and the projection layer.
+        """
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -354,7 +362,13 @@ def build_transformer(
     """
     src_vocab_size: number of words in the vocab
     target_vocab_size: its the output of the target vocab
-    src_seq_len: it represent the maxium number of words in a sentence
+    src_seq_len: it represents the maximum number of words in a sentence
+    target_seq_len: it represents the maximum number of words in a target sentence, usually equal to src_seq_len
+    d_model: It is the size of the model i.e the size of the embedding vector
+    N: Number of times the encoder/decoder blocks are repeated in an architecture
+    head: Number of splits to make in a in multihead attention
+    dropout: dropout after each step
+    d_ff: neurons in the inner layer of the linear layer
     """
     src_embeddings = InputEmbeddings(d_model, src_vocab_size)
     target_embeddings = InputEmbeddings(d_model, target_vocab_size)
@@ -411,6 +425,7 @@ def build_transformer(
         projection_layer,
     )
 
+    # This is to initialize the values of the vector embeddings with sensible defaults
     for p in transformer.parameters():
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
