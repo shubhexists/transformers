@@ -1,5 +1,7 @@
 Implementation of transformer architecture based on [Attention is All You Need](https://arxiv.org/abs/1706.03762)
 
+Pretrained model can be accessed on [hugging face](https://huggingface.co/shubhexists/transformers/tree/main/weights).
+
 ### Inference outputs
 
 <div align="center">
